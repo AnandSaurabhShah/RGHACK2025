@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+"""from flask import Flask, request, jsonify
 import re
 import pdfplumber
 from collections import defaultdict
@@ -6,7 +6,6 @@ from typing import Dict, List, Set, Tuple
 
 app = Flask(__name__)
 
-# Keep the existing job roles and skills definitions
 JOB_ROLES = {
     "Data Scientist": ["Python", "R", "Machine Learning", "Data Analysis", "SQL", "TensorFlow", "PyTorch", "Big Data"],
     "Software Engineer": ["Python", "Java", "C++", "JavaScript", "Git", "Linux", "REST API", "CI/CD"],
@@ -18,7 +17,6 @@ JOB_ROLES = {
     "Full Stack Developer": ["JavaScript", "HTML", "CSS", "React", "Angular", "Node.js", "Python", "SQL", "REST API"]
 }
 
-# Escape special regex characters in skill names
 def escape_regex_special_chars(skills_list):
     return [re.escape(skill) for skill in skills_list]
 
@@ -30,15 +28,13 @@ TECH_SKILLS = escape_regex_special_chars([
     'REST API', 'GraphQL', 'Tableau', 'Power BI', 'JIRA', 'Jenkins', 'Ansible', 'SVM'
 ])
 
-# Modified Scoring Criteria (Total = 10 points)
 CRITERIA = {
-    'skills_match': {'weight': 6.0, 'max': 6.0},  # Increased weight for skills
-    'achievements': {'weight': 2.0, 'max': 2.0},  # Increased weight for achievements
-    'projects': {'weight': 2.0, 'max': 2.0}       # New category for projects
+    'skills_match': {'weight': 6.0, 'max': 6.0},
+    'achievements': {'weight': 2.0, 'max': 2.0},
+    'projects': {'weight': 2.0, 'max': 2.0}
 }
 
 def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extract text from PDF file"""
     with pdfplumber.open(pdf_path) as pdf:
         text = ""
         for page in pdf.pages:
@@ -46,14 +42,12 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     return text
 
 def extract_sections(text: str) -> Dict[str, str]:
-    """Extract sections from resume text (simplified)"""
     sections = {
         'skills': '',
         'achievements': '',
         'projects': ''
     }
     
-    # Enhanced section detection
     lines = text.split('\n')
     current_section = None
     
@@ -74,67 +68,45 @@ def extract_sections(text: str) -> Dict[str, str]:
     return sections
 
 def find_skills_in_text(text: str, skills_list: List[str]) -> Set[str]:
-    """Find skills in text using a safer approach"""
     found_skills = set()
     for skill in skills_list:
-        # Remove the escaping for comparison
         original_skill = skill.replace('\\', '')
-        # Use a simpler pattern for each skill
         if re.search(r'\b' + skill + r'\b', text, re.I):
             found_skills.add(original_skill)
     return found_skills
 
 def calculate_score(text: str, sections: Dict[str, str], target_job: str, found_skills: Set[str]) -> Tuple[float, Set[str]]:
-    """Calculate resume score based on skills, achievements, and projects"""
     score = 0
     required_skills = JOB_ROLES.get(target_job, [])
     
-    # 1. Skills Match (6 points - Job Specific)
     matched_skills = {skill for skill in required_skills if skill in found_skills}
-    
     if len(matched_skills) > 0:
         skill_ratio = len(matched_skills) / len(required_skills)
-        score += min(CRITERIA['skills_match']['max'], 
-                   CRITERIA['skills_match']['weight'] * skill_ratio)
+        score += min(CRITERIA['skills_match']['max'], CRITERIA['skills_match']['weight'] * skill_ratio)
     
-    # 2. Achievements (2 points)
-    # Look for achievement indicators and quantifiable results
     achievement_indicators = [
         r'\b(achieved|award|certification|honor|recognition)\b',
         r'\b(increased|improved|reduced|optimized|enhanced)\b',
-        r'\b(\d+%|\d+ percent)\b',  # Percentages
-        r'\b\$\d+[kmb]?\b'  # Dollar amounts
+        r'\b(\d+%|\d+ percent)\b',
+        r'\b\$\d+[kmb]?\b'
     ]
     
-    num_achievements = 0
-    for pattern in achievement_indicators:
-        num_achievements += len(re.findall(pattern, text, re.I))
+    num_achievements = sum(len(re.findall(pattern, text, re.I)) for pattern in achievement_indicators)
+    score += min(CRITERIA['achievements']['max'], 0.5 * min(num_achievements, 4))
     
-    score += min(CRITERIA['achievements']['max'], 
-               0.5 * min(num_achievements, 4))  # Cap at 4 achievements
-    
-    # 3. Projects (2 points)
-    # Check for project descriptions, GitHub links, and technical terms in project sections
     project_indicators = [
         r'\b(github|project|developed|created|built|implemented)\b',
         r'(https?://github\.com)',
         r'\b(app|application|system|platform|tool|dashboard)\b'
     ]
     
-    num_projects = 0
-    for pattern in project_indicators:
-        num_projects += len(re.findall(pattern, sections['projects'], re.I))
-    
-    # Also check for technical terms in project descriptions
+    num_projects = sum(len(re.findall(pattern, sections['projects'], re.I)) for pattern in project_indicators)
     technical_terms_in_projects = len(matched_skills & find_skills_in_text(sections['projects'], TECH_SKILLS))
-    
-    score += min(CRITERIA['projects']['max'], 
-               0.5 * min(num_projects, 2) + 0.25 * min(technical_terms_in_projects, 4))
+    score += min(CRITERIA['projects']['max'], 0.5 * min(num_projects, 2) + 0.25 * min(technical_terms_in_projects, 4))
     
     return min(10, round(score, 1)), matched_skills
 
-def generate_feedback(score: float, target_job: str, matched_skills: Set[str]) -> List[str]:
-    """Generate job-specific feedback"""
+def generate_feedback(score: float, target_job: str, matched_skills: Set[str]) -> list:
     feedback = []
     required_skills = JOB_ROLES[target_job]
     
@@ -169,24 +141,17 @@ def analyze_resume():
         return jsonify({"error": "No selected file"}), 400
     
     try:
-        # Save the file temporarily
         resume_path = f"temp_{resume_file.filename}"
         resume_file.save(resume_path)
         
-        # Extract text from PDF
         text = extract_text_from_pdf(resume_path)
-        
-        # Extract sections from text
         sections = extract_sections(text)
-        
-        # Find all skills in the resume
         resume_skills = find_skills_in_text(text, TECH_SKILLS)
-        
-        # Calculate score based on skills, achievements, and projects
         score, matched_skills = calculate_score(text, sections, target_job, resume_skills)
         feedback = generate_feedback(score, target_job, matched_skills)
         
-        # Return the result as JSON
+        os.remove(resume_path)
+        
         return jsonify({
             "score": score,
             "feedback": feedback,
@@ -196,5 +161,64 @@ def analyze_resume():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '_main_':
+if __name__ == '__main__':
     app.run(debug=True)
+"""
+import re
+import pdfplumber
+from typing import Dict, List, Set, Tuple
+from bs4 import BeautifulSoup
+import markdown
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    with pdfplumber.open(pdf_path) as pdf:
+        return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+def calculate_score(text: str, job_role: str) -> Tuple[float, Set[str]]:
+    required_skills = {
+        "Data Scientist": {"Python", "R", "Machine Learning", "Data Analysis", "SQL"},
+        "Software Engineer": {"Python", "Java", "JavaScript", "Git", "Linux"},
+        "DevOps Engineer": {"AWS", "Docker", "Kubernetes", "Linux", "CI/CD"},
+        "Web Developer": {"JavaScript", "HTML", "CSS", "React", "Node.js"},
+        "Machine Learning Engineer": {"Python", "Machine Learning", "Tensorflow", "SQL", "PyTorch"},
+        "Data Analyst": {"SQL", "Python", "Data Analysis", "Tableau", "Excel"},
+        "Cloud Engineer": {"AWS", "Azure", "Docker", "Linux", "Networking"},
+        "Full Stack Developer": {"JavaScript", "React", "Node.js", "Python", "SQL"}
+    }
+    
+    text_lower = text.lower()
+    found_skills = {skill for skill in required_skills[job_role] if skill.lower() in text_lower}
+    
+    score = min(5.0, 5 * len(found_skills)/len(required_skills[job_role]))
+    score += min(2.5, 0.5 * len(re.findall(r'\b(achieved|improved|optimized|award|developed)\b', text, re.I)))
+    score += min(2.5, 0.5 * len(re.findall(r'\b(project|github|implemented|deployed|architected)\b', text, re.I)))
+    
+    return min(10, round(score, 1)), found_skills
+
+def remove_markdown(text: str) -> str:
+    html = markdown.markdown(text)
+    soup = BeautifulSoup(html, "html.parser")
+    return soup.get_text(separator="\n", strip=True)
+
+def extract_key_sections(text: str) -> Dict[str, str]:
+    sections = {"experience": "", "education": "", "skills": "", "projects": ""}
+    current_section = None
+    
+    for line in text.split("\n"):
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+            
+        if "experience" in line_clean.lower():
+            current_section = "experience"
+        elif "education" in line_clean.lower():
+            current_section = "education"
+        elif "skills" in line_clean.lower():
+            current_section = "skills"
+        elif "projects" in line_clean.lower():
+            current_section = "projects"
+            
+        if current_section and line_clean:
+            sections[current_section] += line_clean + "\n"
+            
+    return sections
